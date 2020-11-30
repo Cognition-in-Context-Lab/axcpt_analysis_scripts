@@ -1,0 +1,53 @@
+---
+title: "AXCPT Measure Calcs"
+author: "H.J. Traut"
+date: "11/30/2020"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+pacman::p_load(knitr, tidyr, dplyr, ggplot2, plotly, magrittr)
+```
+
+## 1. Documents & Dataframes
+
+The following chunks assume that your dataframe has at least the following columns (in any order):
+
+* `partID` = participant ID
+* `trial_type` = condition of trial (AX, BX, AY, BY)
+* `probe_rt` = reaction time to probe
+* `probe_acc` = accuracy to probe
+
+## 2. Proactive Behavioral Index
+
+```{r, eval = FALSE}
+pbiRT <- axcptRev_clean %>%                                     #create df for calc
+  group_by(trial_type, partID) %>%                              #grp by trialType and participant
+  summarize(rt = mean(probe_rt, na.rm = TRUE)) %>%              #avg rt by trialType for each participant
+  pivot_wider(names_from = trial_type, values_from = rt) %>%    #wideform
+  mutate(proactive_indx = (AY - BX)/(AY + BX))                  #calc pbi
+```
+
+```{r, eval = FALSE}
+str(pbiRT)     #chx - added row
+```
+
+## 3. D-Prime
+
+```{r, eval = FALSE}
+axcpt_dp <- axcptRev %>%                                   #create df for calc
+  group_by(trial_type, partID) %>%                         #grp by trialType and participant
+  summarize(n = n(), hit = sum(prob_acc)) %>%              #generate total num trials (n) and hits (hit)
+  pivot_wider(names_from = trial_type,                     #wideform
+              values_from = c(n, hit)) %>%
+  mutate(missAX = n_AX - hit_AX, falseBX = n_BX - hit_BX)  #calc miss/false alarm
+```
+
+```{r, eval = FALSE}
+str(axcpt_dp) #chx - added row for some reason
+```
+
