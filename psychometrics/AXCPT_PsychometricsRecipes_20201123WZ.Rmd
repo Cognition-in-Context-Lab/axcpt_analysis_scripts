@@ -13,6 +13,8 @@ Some functions to assess the psychometrics of AXCPT's derived measures.
 Note: Permutations reduced to 50 for illustrative purposes.
 
 ```{r}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+
 library(tidyverse)
 library(car)
 library(kableExtra)
@@ -418,11 +420,11 @@ hist(dt_dcon$dcon,breaks=20)
 ## Variability
 
 ```{r dcontvariability}
-leveneTest(dcon~as.factor(age_group),data=dt_dcon)
+leveneTest(dcon~as.factor(age_group), data=dt_dcon)
 
 #create a graph of observed variances across trialtypes by age groups
 pirateplot(formula= dcon~factor(age_group),
-           data=dtsum,
+           data=dt_dcon,
            bean.f.o = .3, # customize bean (i.e. violin)
            bean.b.o= 0,
            point.o = 0.9,#customize points
