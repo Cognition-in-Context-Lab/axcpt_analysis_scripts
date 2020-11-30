@@ -1,11 +1,16 @@
 ---
 title: "AXCPT Psychometrics"
-output:  html_document
 author: "Winnie Zhuang (wzhuang@live.ca)"
 date: "11/17/20"
+output:  
+  html_document:
+    toc: true
+    toc_float: true
 ---
 
 Some functions to assess the psychometrics of AXCPT's derived measures.
+
+Note: Permutations reduced to 50 for illustrative purposes.
 
 ```{r}
 library(tidyverse)
@@ -14,8 +19,10 @@ library(kableExtra)
 library(yarrr)
 ```
 
-#Generate Data
+# Generate Data
+
 First, let's make some data to work with.
+
 ```{r}
 set.seed(1234)
 dt <- expand.grid(
@@ -48,17 +55,21 @@ dtage
 
 
 ```
+
 In this simulated data, 2 age groups with 40 subjects each, 3 blocks of 20 trials per condition per block.
 
-#Mean RTs
-##Calculation
+# Mean RTs
+
+## Calculation
+
 ```{r}
 #look at stats by id
 dt_rt<-dt %>% group_by(id,trialtype,age_group) %>%
   summarise(rt_mean=mean(rt_ms))
 ```
 
-##Variability
+## Variability
+
 ```{r}
 #Levene's test to see if age groups and trialtypes have same variance
 leveneTest(rt_ms~as.factor(age_group)*trialtype,
@@ -81,14 +92,14 @@ pirateplot(formula= rt_mean~factor(age_group)*factor(trialtype),
 
 
 ```
+
 No differences in variances between groups here. Makes sense since the data were generated from the same distribution. 
 
-##Reliability
-internal consistency reliability= how well the scores across instances/items are correlated
-Do 
+## Reliability
 
-I used split-half reliabilities 
-```{r rt split half}
+Internal consistency reliability= how well the scores across instances/items are correlated.
+
+```{r rt_split_half}
 #create a df with just the necessary info
 dt_shr_rt<-dt %>%
   subset(select=c(id,age_group,trialtype,rt_ms)) #might also exclude incorrect trials. Here they've been included in the example. 
@@ -100,7 +111,7 @@ shr_meanrt<-data.frame(n_rep=integer(),
                      meanrt_splithalf=double(),
                      meanrt_sb=double())
 
-tot_rep<- 5000 #specify number of permutations per subject
+tot_rep<- 50 #specify number of permutations per subject
 cur_rep<-0
 
 #now let's loop! This might take a while...
@@ -151,13 +162,15 @@ dtsum_shr_meanrt<-shr_meanrt %>%
 
 #rearrange cols
 kable_styling(kable(dtsum_shr_meanrt,digits=4,
-                    caption="mean RT split half reliabilities (5000 iterations"))#make table look nice
+                    caption="mean RT split half reliabilities (50 iterations)"))#make table look nice
 ```
 
 The reliabilities in this example are pretty poor. This is expected, given that the data for each trial was drawn from the same distribution. 
 
-#Error Rates
+# Error Rates
+
 ## Calcuation
+
 error rate = (number of errors + 0.5)/(number of trials + 1) <-from Gonthier et al. 2018
 
 ```{r}
@@ -171,6 +184,7 @@ dt_err<-dt %>%
 ```
 
 ## Variability
+
 ```{r}
 #view error rates for each trialtype and age group
 pirateplot(formula= mean_err~factor(age_group)*factor(trialtype),
@@ -188,7 +202,8 @@ pirateplot(formula= mean_err~factor(age_group)*factor(trialtype),
 ```
 
 ## Reliability
-```{r rt split half}
+
+```{r error_split_half}
 #create a df with just the necessary info
 dt_shr_err<-dt %>%
   subset(select=c(id,age_group,trialtype,acc)) #might also exclude incorrect trials. Here they've been included in the example. 
@@ -200,7 +215,7 @@ shr_err<-data.frame(n_rep=integer(),
                        err_splithalf=double(),
                        err_sb=double())
 
-tot_rep<- 5000 #specify number of permutations per subject
+tot_rep<- 50 #specify number of permutations per subject
 cur_rep<-0
 
 while (cur_rep<=tot_rep){
@@ -252,12 +267,15 @@ dtsum_shr_err<-shr_err %>%
 
 #rearrange cols
 kable_styling(kable(dtsum_shr_err,digits=4,
-                    caption="AXCPT: mean error rate split half reliabilities (5000 iterations"))#make table look nicet_var="rt_ms")
+                    caption="AXCPT: mean error rate split half reliabilities (50 iterations)"))
 ```
 
-#PBI-RT
+# PBI-RT
+
 ## Calcuation
-Can swap mean RTs with error rates. 
+
+Can swap mean RTs with error rates.
+
 ```{r}
 dt_pbirt<-dt %>%
   filter(trialtype=="ay"|trialtype=="bx") %>%
@@ -271,6 +289,7 @@ dt_pbirt<-dt %>%
 ```
 
 ## Variability
+
 ```{r}
 leveneTest(pbirt~as.factor(age_group),data=dt_pbirt,center=mean)
 
@@ -291,6 +310,7 @@ pirateplot(formula= pbirt~factor(age_group),
 ```
 
 ## Reliability
+
 ```{r}
 #create df w/ just necessary info
 dt_shr_pbirt<-dt %>%
@@ -303,7 +323,7 @@ shr_pbirt<-data.frame(n_rep=integer(),
                        pbirt_splithalf=double(),
                        pbirt_sb=double())
 
-tot_rep<- 5000 #specify number of repetition
+tot_rep<- 50 #specify number of repetition
 cur_rep<-0 #counter for current repetition
 
 while (cur_rep<=tot_rep){
@@ -359,14 +379,16 @@ dtsum_shr_pbirt<-shr_pbirt %>%
 
 #rearrange cols
 kable_styling(kable(dtsum_shr_pbirt,digits=4,
-                    caption="AXCPT: PBI rt_ms split half reliabilities (5000 iterations"))#make table look nicet_var="rt_ms")
+                    caption="AXCPT: PBI rt_ms split half reliabilities (50 iterations)"))
 ```
 
-#D-context
+# D-context
+
 d'-context= Z(AX hits rate) - Z(BX false alarms rate)= ability to use cue info to drive response
 
 ## Calculation
-```{r d con}
+
+```{r d_con}
 #get hit rates and FA rates
 dt_dcon1<-dt %>% 
   group_by(id,trialtype, age_group) %>% #for each subject and trialtype
@@ -394,6 +416,7 @@ hist(dt_dcon$dcon,breaks=20)
 ```
 
 ## Variability
+
 ```{r dcontvariability}
 leveneTest(dcon~as.factor(age_group),data=dt_dcon)
 
@@ -413,8 +436,9 @@ pirateplot(formula= dcon~factor(age_group),
 
 ```
 
-##Reliability
-```{r dcon rel}
+## Reliability
+
+```{r dcon_rel}
 #create df w/ just necessary info 
 dt_shr_dcon<-dt %>%
   filter(trialtype=="ax"|trialtype=="bx") %>%
@@ -426,7 +450,7 @@ shr_dcon<-data.frame(n_rep=integer(),
                        dcon_splithalf=double(),
                        dcon_sb=double())
 
-tot_rep<- 5000 #specify number of permutations 
+tot_rep<- 50 #specify number of permutations 
 cur_rep<-0
 
 while (cur_rep<=tot_rep){
@@ -491,13 +515,15 @@ dtsum_shr_dcon<-shr_dcon %>%
 
 #rearrange cols
 kable_styling(kable(dtsum_shr_dcon,digits=4,
-                    caption="AXCPT: dcontext split half reliabilities (5000 iterations"))#make table look nicet_var="logRT")
+                    caption="AXCPT: dcontext split half reliabilities (50 iterations)"))
 ```
 
 # A-cue bias
+
 A-cue bias= 1/2*(Z(AX hits rate)+Z(AY false alarms rate))= tendency to make target response to A cues
 
-##Calculation
+## Calculation
+
 ```{r}
 #A-cue bias= 1/2*(Z(AX hits rate)+Z(AY false alarms rate))= tendency to make target response to A cues
 #get hit rates and FA rates
@@ -526,9 +552,9 @@ hist(dt_abias$abias,breaks=20)
 ```
 
 ## Variability
+
 ```{r}
 leveneTest(abias~as.factor(age_group),data=dt_abias)
-
 
 #create a graph of observed variances across trialtypes by age groups
 pirateplot(formula= abias~factor(age_group),
@@ -546,7 +572,8 @@ pirateplot(formula= abias~factor(age_group),
 ```
 
 ## Reliability
-```{r A cue bias rel}
+
+```{r A cue_bias_rel}
 #A-cue bias= 1/2*(Z(AX hits rate)+Z(AY false alarms rate))= tendency to make target response to A cues
 #create df w/ just necessary info 
 dt_shr_abias<-dt %>%
@@ -558,7 +585,7 @@ shr_abias<-data.frame(n_rep=integer(),
                        abias_splithalf=double(),
                        abias_sb=double())
 
-tot_rep<- 5000 #specify number of permutations 
+tot_rep<- 50 #specify number of permutations 
 cur_rep<-0
 
 while (cur_rep<=tot_rep){
@@ -621,5 +648,6 @@ dtsum_shr_abias<-shr_abias %>%
 
 #rearrange cols
 kable_styling(kable(dtsum_shr_abias,digits=4,
-                    caption="AXCPT: A-cue bias split half reliabilities (5000 iterations"))#make table look nicet_var="logRT")
+                    caption="AXCPT: A-cue bias split half reliabilities (50 iterations)"))
 ```
+
