@@ -1,0 +1,625 @@
+---
+title: "AXCPT Psychometrics"
+output:  html_document
+author: "Winnie Zhuang (wzhuang@live.ca)"
+date: "11/17/20"
+---
+
+Some functions to assess the psychometrics of AXCPT's derived measures.
+
+```{r}
+library(tidyverse)
+library(car)
+library(kableExtra)
+library(yarrr)
+```
+
+#Generate Data
+First, let's make some data to work with.
+```{r}
+set.seed(1234)
+dt <- expand.grid(
+  ntrial=1:20, # number of trials/condition
+  id= 1:80, #number of subjects
+  trialtype= c("ax","ay","bx","by") #within conditions
+)
+
+#make 2 age groups as between subjects condition
+dt$age_group<- NA
+dt$age_group[dt$id<=40]<-1 
+dt$age_group[dt$id>40]<-2
+
+#simulate some rts and accs
+dt$rt_ms<- rnorm(nrow(dt), mean=400, sd=200)
+dt$acc<-sample(x=c(0,1),size=nrow(dt),replace=TRUE,prob=c(.2,.8))
+
+#take a look at dt
+dt %>% group_by(age_group,id,trialtype) %>%
+  count()
+
+#look at summary stats
+dtage<-dt %>% group_by(age_group) %>% 
+  summarise(subj_count= n_distinct(id),
+            rt_mean= mean(rt_ms),
+            rt_var=var(rt_ms),
+            acc_mean=mean(acc),
+            acc_var=var(acc)) 
+dtage
+
+
+```
+In this simulated data, 2 age groups with 40 subjects each, 3 blocks of 20 trials per condition per block.
+
+#Mean RTs
+##Calculation
+```{r}
+#look at stats by id
+dt_rt<-dt %>% group_by(id,trialtype,age_group) %>%
+  summarise(rt_mean=mean(rt_ms))
+```
+
+##Variability
+```{r}
+#Levene's test to see if age groups and trialtypes have same variance
+leveneTest(rt_ms~as.factor(age_group)*trialtype,
+           data=dt,
+           center=mean)
+
+#make a plot of rt by trialtype and age group
+pirateplot(formula= rt_mean~factor(age_group)*factor(trialtype),
+           data=dt_rt,
+           bean.f.o = .3, # customize bean (i.e. violin)
+           bean.b.o= 0,
+           point.o = 0.3,#customize points
+            point.pch = 2,
+           point.col = "black",
+           point.cex = 0.1,
+           inf.f.o = .3, # Inference fill
+           #xlab="Age Group",#labels
+           ylab="mean RT",
+           theme=1)
+
+
+```
+No differences in variances between groups here. Makes sense since the data were generated from the same distribution. 
+
+##Reliability
+internal consistency reliability= how well the scores across instances/items are correlated
+Do 
+
+I used split-half reliabilities 
+```{r rt split half}
+#create a df with just the necessary info
+dt_shr_rt<-dt %>%
+  subset(select=c(id,age_group,trialtype,rt_ms)) #might also exclude incorrect trials. Here they've been included in the example. 
+
+#now a df to store output
+shr_meanrt<-data.frame(n_rep=integer(),
+                    age_group=character(),
+                    trialtype=character(),
+                     meanrt_splithalf=double(),
+                     meanrt_sb=double())
+
+tot_rep<- 5000 #specify number of permutations per subject
+cur_rep<-0
+
+#now let's loop! This might take a while...
+while (cur_rep<=tot_rep){
+  cur_rep<-cur_rep+1
+  
+  #first, split trial type in each subject into two random halves
+  tmp_dt1<-dt_shr_rt %>% 
+    group_by(age_group, id,trialtype) %>%
+    mutate(repSet=sample(
+      rep(c("A","B"),length.out=n(),size=n())
+    ))
+  
+  #get means for each subject, trialtype, and half
+  tmp_dt2<-tmp_dt1 %>% group_by(age_group,id, trialtype, repSet) %>%
+    summarise(mean_rt=mean(rt_ms)) #change this into 
+  
+  #make wider 
+  tmp_dt3<-tmp_dt2 %>% 
+    pivot_wider(id_cols=c(trialtype, age_group,id),
+                names_from=c(repSet),
+                values_from=mean_rt)
+  
+  #get corrs by age group and trial type
+  tmp_dt4 <- tmp_dt3 %>% group_by(age_group,trialtype) %>%
+    summarise(tmp_meanrt_corr=cor(A,B,use="complete.obs"), # regular corr
+              tmp_meanrt_sb=(2*tmp_meanrt_corr)/(1+tmp_meanrt_corr)) #spearman brown 
+  
+  #add corr and sb to dataframe
+  shr_meanrt<-add_row(shr_meanrt,
+                    n_rep=seq(cur_rep,cur_rep,length.out=8),
+                    age_group=as.factor(tmp_dt4$age_group),
+                    trialtype=tmp_dt4$trialtype,
+                    meanrt_splithalf=tmp_dt4$tmp_meanrt_corr,
+                    meanrt_sb=tmp_dt4$tmp_meanrt_sb)
+}
+
+#get final split half estimates 
+dtsum_shr_meanrt<-shr_meanrt %>%
+  group_by(age_group,trialtype) %>%
+  summarise(splithalf=round(mean(meanrt_splithalf),3),
+            splithalf5= quantile(meanrt_splithalf,probs=c(.05,.95))[1],
+            splithalf95= quantile(meanrt_splithalf,probs=c(.05,.95))[2],
+            sb= mean(meanrt_sb),
+            sb5= quantile(meanrt_sb,probs=c(.05,.95))[1],
+            sb95= quantile(meanrt_sb,probs=c(.05,.95))[2])
+
+
+#rearrange cols
+kable_styling(kable(dtsum_shr_meanrt,digits=4,
+                    caption="mean RT split half reliabilities (5000 iterations"))#make table look nice
+```
+
+The reliabilities in this example are pretty poor. This is expected, given that the data for each trial was drawn from the same distribution. 
+
+#Error Rates
+## Calcuation
+error rate = (number of errors + 0.5)/(number of trials + 1) <-from Gonthier et al. 2018
+
+```{r}
+#get mean error rate  for each individual and trialtype
+dt_err<-dt %>%
+  group_by(id,age_group,trialtype) %>%
+  summarise(count_acc=sum(acc),
+              trial_num=n(),
+              count_err=n()-sum(acc)) %>%
+  mutate(mean_err=(count_err+0.5)/(trial_num+1))
+```
+
+## Variability
+```{r}
+#view error rates for each trialtype and age group
+pirateplot(formula= mean_err~factor(age_group)*factor(trialtype),
+           data=dt_err,
+           bean.f.o = .3, # customize bean (i.e. violin)
+           bean.b.o= 0,
+           point.o = 0.3,#customize points
+            point.pch = 2,
+           point.col = "black",
+           point.cex = 0.1,
+           inf.f.o = .4, # Inference fill
+           #xlab="Age Group",#labels
+           ylab="error rates",
+           theme=1)
+```
+
+## Reliability
+```{r rt split half}
+#create a df with just the necessary info
+dt_shr_err<-dt %>%
+  subset(select=c(id,age_group,trialtype,acc)) #might also exclude incorrect trials. Here they've been included in the example. 
+
+#now a df to store output
+shr_err<-data.frame(n_rep=integer(),
+                    age_group=character(),
+                    trialtype=character(),
+                       err_splithalf=double(),
+                       err_sb=double())
+
+tot_rep<- 5000 #specify number of permutations per subject
+cur_rep<-0
+
+while (cur_rep<=tot_rep){
+  cur_rep<-cur_rep+1
+  
+  tmp_dt1<-dt_shr_err %>% 
+    group_by(age_group, id,trialtype) %>%
+    mutate(repSet=sample(
+      rep(c("A","B"),length.out=n(),size=n())
+    ))
+  
+  #get mean RTs for each subject, trialtype, and half
+  tmp_dt2<-tmp_dt1 %>% group_by(age_group,id, trialtype, repSet) %>%
+    summarise(count_acc=sum(acc),
+              trial_num=n(),
+              count_err=n()-sum(acc)) %>%
+    mutate(mean_err=(count_err+0.5)/(trial_num+1))
+  
+  #make widerand get corrs
+  tmp_dt3<-tmp_dt2 %>% 
+    pivot_wider(id_cols=c(trialtype, age_group,id),names_from=c(repSet),
+                                   values_from=mean_err)
+  
+  #get corrs by age group and trial type
+  tmp_dt4 <- tmp_dt3 %>% group_by(age_group,trialtype) %>%
+    summarise(tmp_err_corr=cor(A,B,use="complete.obs"),
+              tmp_err_sb=(2*tmp_err_corr)/(1+tmp_err_corr))
+  
+  #add corr and sb to dataframe
+  shr_err<-add_row(shr_err,
+                    n_rep=seq(cur_rep,cur_rep,
+                              length.out=nrow(tmp_dt4)),
+                    age_group=as.factor(tmp_dt4$age_group),
+                    trialtype=tmp_dt4$trialtype,
+                    err_splithalf=tmp_dt4$tmp_err_corr,
+                    err_sb=tmp_dt4$tmp_err_sb)
+}
+
+#get final split half estimates 
+dtsum_shr_err<-shr_err %>%
+  group_by(age_group,trialtype) %>%
+  summarise(splithalf=round(mean(err_splithalf),3),
+            splithalf5= quantile(err_splithalf,probs=c(.05,.95))[1],
+            splithalf95= quantile(err_splithalf,probs=c(.05,.95))[2],
+            sb= mean(err_sb),
+            sb5= quantile(err_sb,probs=c(.05,.95))[1],
+            sb95= quantile(err_sb,probs=c(.05,.95))[2])
+
+
+#rearrange cols
+kable_styling(kable(dtsum_shr_err,digits=4,
+                    caption="AXCPT: mean error rate split half reliabilities (5000 iterations"))#make table look nicet_var="rt_ms")
+```
+
+#PBI-RT
+## Calcuation
+Can swap mean RTs with error rates. 
+```{r}
+dt_pbirt<-dt %>%
+  filter(trialtype=="ay"|trialtype=="bx") %>%
+  subset(select=c(id,age_group,trialtype,rt_ms)) %>% 
+  group_by(age_group,id,trialtype) %>%
+  summarise(meanrt_ms=mean(rt_ms)) %>%
+  pivot_wider(id_cols=c(id,age_group),
+                names_from=c(trialtype),
+                values_from=meanrt_ms) %>%
+  mutate(pbirt=(ay - bx)/(ay + bx))
+```
+
+## Variability
+```{r}
+leveneTest(pbirt~as.factor(age_group),data=dt_pbirt,center=mean)
+
+#view a plot
+pirateplot(formula= pbirt~factor(age_group),
+           data=dt_pbirt,
+           bean.f.o = .3, # customize bean (i.e. violin)
+           bean.b.o= 0,
+           point.o = 0.5,#customize points
+            point.pch = 5,
+           point.col = "black",
+           point.cex = 0.9,
+           inf.f.o = .3, # Inference fill
+           xlab="Age Group",#labels
+           ylab="PBI RT",
+           theme=1)
+
+```
+
+## Reliability
+```{r}
+#create df w/ just necessary info
+dt_shr_pbirt<-dt %>%
+  filter(trialtype=="ay"|trialtype=="bx") %>%
+  subset(select=c(id,age_group,trialtype,rt_ms))
+
+#create an empty dt to hold the results
+shr_pbirt<-data.frame(n_rep=integer(),
+                       age_group=character(),
+                       pbirt_splithalf=double(),
+                       pbirt_sb=double())
+
+tot_rep<- 5000 #specify number of repetition
+cur_rep<-0 #counter for current repetition
+
+while (cur_rep<=tot_rep){
+  cur_rep<-cur_rep+1 #add counter
+
+  #grab only needed trials and split into A and B halves
+  tmp_dt1<-dt_shr_pbirt %>% filter(trialtype=="ay"|trialtype=="bx") %>%
+    group_by(age_group, id,trialtype) %>%
+    mutate(repSet=sample(
+      rep(c("A","B"),length.out=n(),size=n())
+    ))
+  
+  #get mean RTs for each subject, trialtype, and half
+  tmp_dt2<-tmp_dt1 %>% group_by(age_group,id, trialtype, repSet) %>%
+    summarise(meanrt_ms=mean(rt_ms))
+  
+  #get pbi rt_ms for each half
+  tmp_dt3<-tmp_dt2 %>%
+    pivot_wider(id_cols=c(id,age_group),
+                names_from=c(trialtype, repSet),
+                values_from=meanrt_ms) %>%
+    mutate(pbirt_A=(ay_A - bx_A)/(ay_A + bx_A),
+           pbirt_B=(ay_B - bx_B)/(ay_B + bx_B))
+  
+  #get corrs by age group
+  tmp_dt4 <- tmp_dt3 %>% group_by(age_group) %>%
+    summarise(tmp_pbirt_corr=cor(pbirt_A,pbirt_B,use="complete.obs"),
+               tmp_pbirt_sb=(2*tmp_pbirt_corr)/(1+tmp_pbirt_corr))
+  
+  #add corr and sb to dataframe
+  shr_pbirt<-add_row(shr_pbirt,
+                      n_rep=seq(cur_rep,cur_rep,length.out=2),
+                      age_group=as.factor(tmp_dt4$age_group),
+                      pbirt_splithalf=tmp_dt4$tmp_pbirt_corr,
+                      pbirt_sb=tmp_dt4$tmp_pbirt_sb)
+}
+
+#View(shr_pbirt) histograms by age group
+ggplot(shr_pbirt, aes(x=pbirt_splithalf,color=age_group))+
+  geom_histogram()+
+  facet_wrap(~age_group)
+
+#get final split half estimates 
+dtsum_shr_pbirt<-shr_pbirt %>%
+  group_by(age_group) %>%
+  summarise(splithalf=round(mean(pbirt_splithalf),3),
+            splithalf5= quantile(pbirt_splithalf,probs=c(.05,.95))[1],
+            splithalf95= quantile(pbirt_splithalf,probs=c(.05,.95))[2],
+            SpearmanBrown= mean(pbirt_sb),
+            SpearmanBrown5= quantile(pbirt_sb,probs=c(.05,.95))[1],
+            SpearmanBrown95= quantile(pbirt_sb,probs=c(.05,.95))[2])
+
+
+#rearrange cols
+kable_styling(kable(dtsum_shr_pbirt,digits=4,
+                    caption="AXCPT: PBI rt_ms split half reliabilities (5000 iterations"))#make table look nicet_var="rt_ms")
+```
+
+#D-context
+d'-context= Z(AX hits rate) - Z(BX false alarms rate)= ability to use cue info to drive response
+
+## Calculation
+```{r d con}
+#get hit rates and FA rates
+dt_dcon1<-dt %>% 
+  group_by(id,trialtype, age_group) %>% #for each subject and trialtype
+  summarise(counts= n(),
+            correct=sum(acc)) %>%
+  mutate(hit_rate=ifelse(correct/counts==1,.95, #get hit rates and false alarms w/ corrections
+                           correct/counts),
+         fa_rate=(ifelse((counts-correct)/counts==0,.05,
+                  ((counts-correct)/counts))))
+
+#now keep going
+dt_dcon2<-dt_dcon1 %>%
+  filter(trialtype=="ax"|trialtype=="bx") %>% #filter out AY and BY trials
+  pivot_wider(id_cols = c(id,age_group), 
+              names_from = trialtype, 
+              values_from = c(hit_rate,fa_rate)) %>%
+  mutate(dcon = (qnorm(hit_rate_ax) - qnorm(fa_rate_bx))) #%>%
+
+# final dt_dcon
+dt_dcon<-dt_dcon2
+
+#view dcontext distribution
+hist(dt_dcon$dcon,breaks=20)
+
+```
+
+## Variability
+```{r dcontvariability}
+leveneTest(dcon~as.factor(age_group),data=dt_dcon)
+
+#create a graph of observed variances across trialtypes by age groups
+pirateplot(formula= dcon~factor(age_group),
+           data=dtsum,
+           bean.f.o = .3, # customize bean (i.e. violin)
+           bean.b.o= 0,
+           point.o = 0.9,#customize points
+            point.pch = 21,
+           point.col = "black",
+           point.cex = 1,
+           inf.f.o = .3, # Inference fill
+           xlab="Age Group",#labels
+           ylab="d-context",
+           theme=1)
+
+```
+
+##Reliability
+```{r dcon rel}
+#create df w/ just necessary info 
+dt_shr_dcon<-dt %>%
+  filter(trialtype=="ax"|trialtype=="bx") %>%
+  subset(select=c(id,age_group,trialtype,acc))
+
+#empty df to store results
+shr_dcon<-data.frame(n_rep=integer(),
+                       age_group=character(),
+                       dcon_splithalf=double(),
+                       dcon_sb=double())
+
+tot_rep<- 5000 #specify number of permutations 
+cur_rep<-0
+
+while (cur_rep<=tot_rep){
+  cur_rep<-cur_rep+1
+
+  tmp_dt1<-dt_shr_dcon %>%
+    group_by(age_group, id,trialtype) %>%
+    mutate(repSet=sample(
+      rep(c("A","B"),length.out=n(),size=n())
+    ))
+  
+  #get mean RTs for each subject, trialtype, and half
+  tmp_dt2<- tmp_dt1 %>% 
+    group_by(age_group,trialtype,id,repSet) %>%
+    summarise(counts= n(),
+            correct=sum(acc)) %>%
+    mutate(hit_rate=ifelse(correct/counts==1,.95,
+                           correct/counts),
+         fa_rate=(ifelse((counts-correct)/counts==0,.05,
+                  ((counts-correct)/counts)))) #get hit rates and false alarms
+
+  #now keep going
+  tmp_dt3<-tmp_dt2 %>%
+    pivot_wider(id_cols = c(id,repSet,age_group), 
+                names_from = c(trialtype), 
+                values_from = c(hit_rate,fa_rate)) %>%
+    mutate(dcon = (qnorm(hit_rate_ax) - qnorm(fa_rate_bx))) %>%
+    pivot_wider(id_cols=c(id,age_group),
+                names_from=repSet,
+                values_from=dcon)
+  
+  #get corrs by age group
+  tmp_dt4 <- tmp_dt3 %>% group_by(age_group) %>%
+    summarise(tmp_dcon_corr=cor(A,B,use="complete.obs"),
+               tmp_dcon_sb=(2*tmp_dcon_corr)/(1+tmp_dcon_corr))
+  
+  #add corr and sb to dataframe
+  shr_dcon<-add_row(shr_dcon,
+                      n_rep=c(cur_rep, cur_rep),
+                      age_group=as.factor(tmp_dt4$age_group),
+                      dcon_splithalf=tmp_dt4$tmp_dcon_corr,
+                      dcon_sb=tmp_dt4$tmp_dcon_sb)
+}
+
+#View(shr_dcon) histograms by age group
+ggplot(shr_dcon, aes(x=dcon_splithalf,color=age_group))+
+  geom_histogram()+
+  facet_wrap(~age_group)
+
+#save output 
+# write.csv(shr_dcon,"05_Psychometrics/SearchCosts_AXCPT_dconSHR_201019.csv",row.names=FALSE)
+
+#get final split half estimates 
+dtsum_shr_dcon<-shr_dcon %>%
+  group_by(age_group) %>%
+  summarise(splithalf=round(mean(dcon_splithalf),3),
+            splithalf5= quantile(dcon_splithalf,probs=c(.05,.95))[1],
+            splithalf95= quantile(dcon_splithalf,probs=c(.05,.95))[2],
+            sb= mean(dcon_sb),
+            sb5= quantile(dcon_sb,probs=c(.05,.95))[1],
+            sb95= quantile(dcon_sb,probs=c(.05,.95))[2])
+
+#rearrange cols
+kable_styling(kable(dtsum_shr_dcon,digits=4,
+                    caption="AXCPT: dcontext split half reliabilities (5000 iterations"))#make table look nicet_var="logRT")
+```
+
+# A-cue bias
+A-cue bias= 1/2*(Z(AX hits rate)+Z(AY false alarms rate))= tendency to make target response to A cues
+
+##Calculation
+```{r}
+#A-cue bias= 1/2*(Z(AX hits rate)+Z(AY false alarms rate))= tendency to make target response to A cues
+#get hit rates and FA rates
+dt_abias1<-dt %>% 
+  group_by(id,trialtype,age_group) %>% #for each subject and trialtype
+  summarise(counts= n(),
+            correct=sum(acc)) %>%
+  mutate(hit_rate=ifelse(correct/counts==1,.95, #get hit rates and false alarms w/ corrections
+                           correct/counts),
+         fa_rate=(ifelse((counts-correct)/counts==0,.05,
+                  ((counts-correct)/counts))))
+
+#now keep going
+dt_abias2<-dt_abias1 %>%
+  filter(trialtype=="ax"|trialtype=="ay") %>% #filter out BX and BY trials
+  pivot_wider(id_cols = c(id,age_group), 
+              names_from = trialtype, 
+              values_from = c(hit_rate,fa_rate)) %>%
+  mutate(abias = 0.5*(qnorm(hit_rate_ax) - qnorm(fa_rate_ay))) #%>%
+
+# final dt_dcon
+dt_abias<-dt_abias2
+
+#view dcontext distribution
+hist(dt_abias$abias,breaks=20)
+```
+
+## Variability
+```{r}
+leveneTest(abias~as.factor(age_group),data=dt_abias)
+
+
+#create a graph of observed variances across trialtypes by age groups
+pirateplot(formula= abias~factor(age_group),
+           data=dt_abias,
+           bean.f.o = .3, # customize bean (i.e. violin)
+           bean.b.o= 0,
+           point.o = 0.9,#customize points
+            point.pch = 21,
+           point.col = "black",
+           point.cex = 1,
+           inf.f.o = .3, # Inference fill
+           xlab="Age Group",#labels
+           ylab="A-cue bias",
+           theme=1)
+```
+
+## Reliability
+```{r A cue bias rel}
+#A-cue bias= 1/2*(Z(AX hits rate)+Z(AY false alarms rate))= tendency to make target response to A cues
+#create df w/ just necessary info 
+dt_shr_abias<-dt %>%
+  filter(trialtype=="ax"|trialtype=="ay") %>%
+  subset(select=c(id,age_group,trialtype,acc))
+
+shr_abias<-data.frame(n_rep=integer(),
+                       age_group=character(),
+                       abias_splithalf=double(),
+                       abias_sb=double())
+
+tot_rep<- 5000 #specify number of permutations 
+cur_rep<-0
+
+while (cur_rep<=tot_rep){
+  cur_rep<-cur_rep+1
+
+  tmp_dt1<-dt_shr_abias %>%
+    group_by(age_group, id,trialtype) %>%
+    mutate(repSet=sample(
+      rep(c("A","B"),length.out=n(),size=n())
+    ))
+  
+  #get mean RTs for each subject, trialtype, and half
+  tmp_dt2<- tmp_dt1 %>% 
+    group_by(age_group,trialtype,id,repSet) %>%
+    summarise(counts= n(),
+            correct=sum(acc)) %>%
+    mutate(hit_rate=ifelse(correct/counts==1,.95, #get hit rates and false alarms w/ corrections
+                           correct/counts),
+         fa_rate=(ifelse((counts-correct)/counts==0,.05,
+                  ((counts-correct)/counts))))
+
+  #now keep going and do calcs
+  tmp_dt3<-tmp_dt2 %>%
+    pivot_wider(id_cols = c(id,repSet,age_group), 
+                names_from = c(trialtype), 
+                values_from = c(hit_rate,fa_rate)) %>%
+    mutate(abias = 0.5*(qnorm(hit_rate_ax) - qnorm(fa_rate_ay))) %>%
+    pivot_wider(id_cols=c(id,age_group),
+                names_from=repSet,
+                values_from=abias)
+  
+  #get corrs by age group
+  tmp_dt4 <- tmp_dt3 %>% group_by(age_group) %>%
+    filter(is.finite(A) & is.finite(B)) %>%
+    summarise(tmp_abias_corr=cor(A,B,use="complete.obs"),
+               tmp_abias_sb=(2*tmp_abias_corr)/(1+tmp_abias_corr))
+  
+  #add corr and sb to dataframe
+  shr_abias<-add_row(shr_abias,
+                      n_rep=c(cur_rep, cur_rep),
+                      age_group=as.factor(tmp_dt4$age_group),
+                      abias_splithalf=tmp_dt4$tmp_abias_corr,
+                      abias_sb=tmp_dt4$tmp_abias_sb)
+}
+
+#View(shr_abias) histograms by age group
+ggplot(shr_abias, aes(x=abias_splithalf,color=age_group))+
+  geom_histogram()+
+  facet_wrap(~age_group)
+
+#get final split half estimates 
+dtsum_shr_abias<-shr_abias %>%
+  group_by(age_group) %>%
+  summarise(splithalf=round(mean(abias_splithalf),3),
+            splithalf5= quantile(abias_splithalf,probs=c(.05,.95))[1],
+            splithalf95= quantile(abias_splithalf,probs=c(.05,.95))[2],
+            sb= mean(abias_sb),
+            sb5= quantile(abias_sb,probs=c(.05,.95))[1],
+            sb95= quantile(abias_sb,probs=c(.05,.95))[2])
+
+#rearrange cols
+kable_styling(kable(dtsum_shr_abias,digits=4,
+                    caption="AXCPT: A-cue bias split half reliabilities (5000 iterations"))#make table look nicet_var="logRT")
+```
