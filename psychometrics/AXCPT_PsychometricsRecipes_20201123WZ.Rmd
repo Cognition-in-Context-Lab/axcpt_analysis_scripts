@@ -8,6 +8,13 @@ output:
     toc_float: true
 ---
 
+```{r, out.width ="20%", echo = FALSE}
+htmltools::img(src = knitr::image_uri("recipie3.png"), 
+               alt = 'logo', 
+               style = 'position:absolute; top:0; right:0; padding:10px;',
+               )
+```
+
 Some functions to assess the psychometrics of AXCPT's derived measures.
 
 Note: Permutations reduced to 50 for illustrative purposes.
