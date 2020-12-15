@@ -12,4 +12,5 @@ This repository maintains scripts used by the Cognition in Context (CiC) Lab at 
 
 ## References:
 
-List of relevant citations if we were to make repo public
+List of relevant citations if we were to make repo public.
+Chatham et al., 2012
