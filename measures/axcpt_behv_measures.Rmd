@@ -13,6 +13,9 @@ knitr::opts_chunk$set(echo = TRUE)
 pacman::p_load(knitr, tidyr, dplyr, ggplot2, plotly, magrittr)
 ```
 
+AN EXAMPLE
+
+
 ## 1. Documents & Dataframes
 
 The following chunks assume that your dataframe has at least the following columns (in any order):
